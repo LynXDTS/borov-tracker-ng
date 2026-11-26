@@ -545,7 +545,8 @@ const I18N = {
     loadErr: e => `Не удалось загрузить data.json (${e}). Попробую ещё раз через минуту.`,
     justNow: "только что", minAgo: m => `${m} мин назад`, hAgo: (h, m) => `${h} ч ${m} мин назад`, dAgo: d => `${d} дн назад`,
     games: n => `${n} ${ruPlural(n, "игра", "игры", "игр")}`,
-    untilRun: "До планового обновления", runNow: "Плановое обновление", waiting: "Ожидаем обновления",
+    // untilRun: "До планового обновления", runNow: "Плановое обновление", waiting: "Ожидаем обновления",
+    untilRun: "До следующего обновления", runNow: "Обновление данных", waiting: "Ожидаем обновление",
     recalc: "Пересчёт", dbData: "Данные о матчах", dbDataLc: "данные о матчах", notYet: "ещё не получены",
     srcDown: "источник недоступен", srcCached: "снимок из кэша jina", footDown: "источник матчей недоступен, сохранены предыдущие данные", nextRunLc: "плановое обновление",
     approx: "Примерный рейтинг", lbRank: n => `#${n} в лидерборде`,
@@ -716,18 +717,47 @@ async function load() {
 }
 
 // Сборщик стартует по крону каждые 15 минут (:00/:15/:30/:45 UTC), GitHub иногда запаздывает на несколько минут.
-const SLOT = 15 * 60000;
-const nextRun = () => Math.ceil((new Date(DATA.updated_at).getTime() + 1) / SLOT) * SLOT;
+// const SLOT = 15 * 60000;
+// const nextRun = () => Math.ceil((new Date(DATA.updated_at).getTime() + 1) / SLOT) * SLOT;
+// let lastPoll = 0;
+//
+// function tickLive() {
+//   if (!DATA) return;
+//   const left = nextRun() - Date.now();
+//   const due = left <= 0;
+//   const txt = due ? S.waiting : `${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}`;
+//   const sourceFailed = DATA.scrape_status === "unavailable";
+//   const sourceCached = DATA.scrape_status === "cached";
+//   const sourceStale = !DATA.scraped_at || Date.now() - new Date(DATA.scraped_at) > 45 * 60000;
+// Сборщик работает в цикле: собирает данные и спит 3 часа.
+// Добавляем 3 минуты буфера, так как скрипту нужно время на выполнение (сбор матчей, парсинг)
+// const nextRun = () => new Date(DATA.updated_at).getTime() + SLOT + (3 * 60000);
+const nextRun = () => {
+  if (DATA.next_update_at) {
+    return new Date(DATA.next_update_at).getTime();
+  }
+  return new Date(DATA.updated_at).getTime() + (3 * 60 * 60 * 1000) + (3 * 60000);
+};
 let lastPoll = 0;
 
 function tickLive() {
   if (!DATA) return;
   const left = nextRun() - Date.now();
   const due = left <= 0;
-  const txt = due ? S.waiting : `${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}`;
+
+  // Форматируем таймер: если больше часа, показываем Ч:ММ:СС, иначе ММ:СС
+  let txt = S.waiting;
+  if (!due) {
+    const m = Math.floor(left / 60000);
+    const s = String(Math.floor(left / 1000) % 60).padStart(2, "0");
+    const h = Math.floor(m / 60);
+    txt = h > 0 ? `${h}:${String(m % 60).padStart(2, "0")}:${s}` : `${m}:${s}`;
+  }
+
   const sourceFailed = DATA.scrape_status === "unavailable";
   const sourceCached = DATA.scrape_status === "cached";
-  const sourceStale = !DATA.scraped_at || Date.now() - new Date(DATA.scraped_at) > 45 * 60000;
+  // Если данные не обновлялись 3.5 часа, значит скрипт на VM упал или завис
+  const sourceStale = !DATA.scraped_at || Date.now() - new Date(DATA.scraped_at) > 3.5 * 60 * 60 * 1000;
   $("#schedule").textContent = due ? S.runNow : S.untilRun;
   $("#timer").textContent = txt;
   $("#live").classList.toggle("due", due);

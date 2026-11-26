@@ -26,6 +26,7 @@ OUT = ROOT / "data.json"
 HISTORY_OUT = ROOT / "history.json"
 HISTORY_TOP_HEROES = 12
 
+SLEEP_SECONDS = 3 * 60 * 60  # 3 hours
 BASE_TS, BASE_MMR = "2026-09-16T09:00:00+00:00", 6781
 BASE_DATE = BASE_TS[:10]
 HISTORY_FROM = "2026-07-31"
@@ -382,6 +383,7 @@ def build_output(db, const):
         "account_id": ACCOUNT,
         "profile": kv_get(db, "profile", {}),
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+	"next_update_at": (datetime.now(timezone.utc) + timedelta(seconds=SLEEP_SECONDS + 120)).isoformat(timespec="seconds"),
         "scraped_at": kv_get(db, "scraped_at"),
         "scrape_status": kv_get(db, "scrape_status"),
         "history_from": HISTORY_FROM,
@@ -700,4 +702,5 @@ if __name__ == "__main__":
             print(f"::error::Main loop error: {e}", file=sys.stderr)
 
         print(f"Sleeping for 3 hours (Next update at {datetime.now() + timedelta(hours=3)})...")
-        time.sleep(10800)
+        time.sleep(SLEEP_SECONDS)
+

@@ -1,2 +1,7 @@
+.venv/
+venv/
 __pycache__/
+*.pyc
+data/chrome_profile/
+data/borov.db
 .DS_Store

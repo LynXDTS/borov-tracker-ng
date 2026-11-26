@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Собирает матчи игрока 226241953 в локальную SQLite-базу и строит data.json для страницы.
-
-Источники:
-- Steam Web API GetMatchHistory (нужен STEAM_API_KEY) — id последних матчей; базовые поля нового матча берём
-  из OpenDota /matches/{id}, а если там его ещё нет — из Steam GetMatchDetails.
-- Без ключа — Dotabuff (главная профиля через r.jina.ai): 15 последних матчей и календарь W-L по дням.
-- OpenDota /matches/{id} — детали матча (предметы, NW, GPM). История игрока на OpenDota скрыта,
-  но отдельные матчи по ID отдаются.
-
-База: data/borov.db (matches, calendar, kv). Старые матчи заливаются scripts/import.py.
-"""
 import json
 import os
 import re
@@ -18,74 +7,60 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# --- CHECK DEPENDENCIES ---
+try:
+    from DrissionPage import ChromiumPage, ChromiumOptions
+except ImportError:
+    print("::error::Missing dependencies. Please run: pip install DrissionPage", file=sys.stderr)
+    sys.exit(1)
+
 
 ACCOUNT = 226241953
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "data" / "borov.db"
 OUT = ROOT / "data.json"
 HISTORY_OUT = ROOT / "history.json"
-HISTORY_TOP_HEROES = 12  # сколько героев показывать в блоке «Вся история»
+HISTORY_TOP_HEROES = 12
 
-# Опорная точка рейтинга; от неё ±25 за каждую ранкед-игру вперёд и назад.
-# Назад считаем до 31.07.2026 — патч 7.41e пересчитал шкалу MMR.
 BASE_TS, BASE_MMR = "2026-09-16T09:00:00+00:00", 6781
 BASE_DATE = BASE_TS[:10]
 HISTORY_FROM = "2026-07-31"
 STEP = 25
 KEEP = 20
-SHAME = 10  # сколько позорных матчей показывать; позорный — от 10 смертей, сортировка по смертям минус убийства
+SHAME = 10
 SHAME_MIN_D = 10
-FORM = 50  # по скольким последним ранкед-играм считать винрейт для прогноза до 7к
-OD_PER_RUN = 40  # сколько матчей без деталей догружать из OpenDota за один запуск
-OD_RETRY_DAYS = 3  # матчи моложе стольких дней перезапрашиваем в OpenDota без лимита попыток
-REFILL_PER_RUN = 150  # сколько старых матчей перезапрашивать ради региона и составов за один запуск, пока не догрузим все
+FORM = 50
+OD_PER_RUN = 40
+OD_RETRY_DAYS = 3
+REFILL_PER_RUN = 150
 CDN = "https://cdn.cloudflare.steamstatic.com"
-UA = {"User-Agent": "borov-tracker/1.0 (+github actions)"}
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+
 STEAM_KEY = os.environ.get("STEAM_API_KEY")
 STEAM = "https://api.steampowered.com/IDOTA2Match_570"
-STEAM_HISTORY = 25  # сколько последних матчей спрашивать у Steam за запуск
+
 MODES = {1: "All Pick", 2: "Captains Mode", 3: "Random Draft", 4: "Single Draft", 5: "All Random", 16: "Captains Draft",
          18: "Ability Draft", 22: "All Pick", 23: "Turbo"}
-# С ключом jina ходит через свои резидентные IP, и Cloudflare Dotabuff пускает свежие запросы.
-JINA_KEY = os.environ.get("JINA_API_KEY")
 RADIANCE = 137
-# Расходники и мелочь, которые не считаем «популярными предметами».
 SKIP_ITEMS = {"tpscroll", "branches", "ward_observer", "ward_sentry", "ward_dispenser", "dust", "smoke_of_deceit",
               "tango", "flask", "clarity", "faerie_fire", "enchanted_mango", "blood_grenade", "cheese", "aegis",
               "refresher_shard", "famango", "great_famango", "greater_famango"}
 
 SCHEMA = """
 create table if not exists matches (
-  id integer primary key,
-  start text not null,            -- ISO UTC
-  hero_id integer,
-  hero_name text,
-  win integer not null,
-  type text,                      -- Ranked / Unranked / Turbo ...
-  mode text,
-  duration integer,
-  k integer, d integer, a integer,
-  side text,
+  id integer primary key, start text not null, hero_id integer, hero_name text, win integer not null,
+  type text, mode text, duration integer, k integer, d integer, a integer, side text,
   level integer, net_worth integer, gpm integer, xpm integer, lh integer, dn integer, hero_damage integer,
-  items text,                     -- json: id предметов item_0..5
-  backpack text,                  -- json: id предметов backpack_0..2
-  neutral integer,
-  purchased text,                 -- json: ключи всех купленных предметов (purchase_log), если матч распаршен
-  score text,                     -- json [свои, чужие]
-  allies text,                    -- json: id героев союзников
-  enemies text,                   -- json: id героев противников
-  region integer,                 -- регион сервера по OpenDota (constants/region), -1 — OpenDota не знает
-  cluster integer,                -- кластер сервера; по нему подписываем матчи с неизвестным регионом
-  od_done integer default 0,
-  od_tries integer default 0,
-  source text
+  items text, backpack text, neutral integer, purchased text, score text, allies text, enemies text,
+  region integer, cluster integer, od_done integer default 0, od_tries integer default 0, source text
 );
 create table if not exists calendar (date text primary key, w integer, l integer);
 create table if not exists kv (k text primary key, v text);
 """
-
 
 def get(url, headers=None, timeout=60, tries=3):
     for attempt in range(tries):
@@ -93,13 +68,12 @@ def get(url, headers=None, timeout=60, tries=3):
             req = urllib.request.Request(url, headers={**UA, **(headers or {})})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read().decode("utf-8", "replace")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"GET {re.sub(r'key=[^&]+', 'key=***', url)} failed ({attempt + 1}/{tries}): {e}", file=sys.stderr)
             if isinstance(e, urllib.error.HTTPError) and e.code in (401, 402, 404):
                 return None
             time.sleep(5 * (attempt + 1))
     return None
-
 
 def get_json(url):
     body = get(url)
@@ -108,72 +82,84 @@ def get_json(url):
     except json.JSONDecodeError:
         return None
 
-
 def connect():
+    DB.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
-    # Колонки region, cluster, allies и enemies добавили позже — в старой базе их нет.
     cols = {r["name"] for r in db.execute("pragma table_info(matches)")}
     for col, typ in (("region", "integer"), ("cluster", "integer"), ("allies", "text"), ("enemies", "text")):
         if col not in cols:
             db.execute(f"alter table matches add column {col} {typ}")
     return db
 
-
 def kv_get(db, k, default=None):
     r = db.execute("select v from kv where k=?", (k,)).fetchone()
     return json.loads(r["v"]) if r else default
 
-
 def kv_set(db, k, v):
     db.execute("insert or replace into kv(k, v) values(?, ?)", (k, json.dumps(v, ensure_ascii=False)))
 
+def get_dotabuff_match_ids(pages=1):
+    print(f"Fetching match IDs from Dotabuff ({pages} pages) via browser...")
 
-ROW_RE = re.compile(
-    r'<a href="/matches/(\d+)">([^<]+)</a>.*?class="(won|lost)" href="/matches/\1">'
-    r'.*?datetime="([^"]+)".*?r-first"><div class="r-label r-always-hidden">Type</div>'
-    r'<div class="r-body">([^<]+)<.*?<div class="subtext">([^<]+)</div>'
-    r'.*?Duration</div><div class="r-body">([^<]+)<'
-    r'.*?kda-record"><span class="value">(\d+)</span>/<span class="value">(\d+)</span>/<span class="value">(\d+)',
-    re.S,
-)
-CAL_RE = re.compile(
-    r'<h3>(\d{4}-\d\d-\d\d)</h3>Record: <span[^>]*>(\d+)</span><span[^>]*>-</span><span[^>]*>(\d+)</span>'
-)
+    co = ChromiumOptions()
+    co.set_argument('--no-sandbox')
+    co.set_argument('--disable-dev-shm-usage')
+    co.set_argument('--window-size=1280,800')
+    co.set_user_data_path(str(ROOT / "data" / "chrome_profile"))
+    co.set_argument('--disk-cache-size=52428800')
 
-
-def scrape_dotabuff():
-    """(rows, cal, fresh). Сначала свежая страница; если Cloudflare не пустил jina — её последний снимок из кэша."""
-    for fresh in (True, False):
-        html = get(
-            f"https://r.jina.ai/https://www.dotabuff.com/players/{ACCOUNT}",
-            # Без X-No-Cache jina отдаёт снимок страницы из своего кэша, и свежие матчи приходят с опозданием.
-            headers={"X-Return-Format": "html", **({"X-No-Cache": "true"} if fresh else {}),
-                     **({"Authorization": f"Bearer {JINA_KEY}"} if JINA_KEY else {})},
-            timeout=120,
-        )
-        rows, cal = parse_dotabuff(html)
-        if rows:
-            return rows, cal, fresh
-        title = re.search(r"<title>([^<]*)", html or "")
-        print(f"dotabuff {'fresh' if fresh else 'cached'}: no profile ({len(html or '')} bytes, "
-              f"title {title.group(1) if title else None!r}, start {(html or '')[:120]!r})", file=sys.stderr)
-    return None, None, False
+    page = None
+    try:
+        page = ChromiumPage(co)
+        all_ids = []
 
 
-def steam_history():
-    """id последних матчей игрока из Steam GetMatchHistory или None, если Valve не отдал историю."""
-    d = get_json(f"{STEAM}/GetMatchHistory/v1/?key={STEAM_KEY}&account_id={ACCOUNT}&matches_requested={STEAM_HISTORY}")
-    res = (d or {}).get("result") or {}
-    if res.get("status") != 1:
-        print(f"steam history: {res.get('statusDetail') or 'no response'}", file=sys.stderr)
+        for p in range(1, pages + 1):
+            progress(p, pages, "Dotabuff pages")
+            target = "https://www.dotabuff" + ".com/players/" + str(ACCOUNT) + f"/matches?page={p}"
+            page.get(target)
+            time.sleep(3)
+#Break to login
+        # for p in range(1, pages + 1):
+        #     target = "https://www.dotabuff" + ".com/players/" + str(ACCOUNT) + f"/matches?page={p}"
+        #     print(f"  Loading page {p}/{pages}...")
+        #     page.get(target)
+        #     input("👉 Finish logging in with your burner Steam account, then press ENTER here...")
+
+
+            links = page.eles('css:a[href^="/matches/"]')
+            page_ids = []
+            for link in links:
+                href = link.attr('href') or ""
+                mid = href.split('/')[-1]
+                if mid.isdigit():
+                    page_ids.append(int(mid))
+
+            if not page_ids:
+                print(f"  No matches found on page {p}, stopping pagination.")
+                break
+
+            all_ids.extend(page_ids)
+
+        unique_ids = list(dict.fromkeys(all_ids))
+        if unique_ids:
+            print(f"✅ Found {len(unique_ids)} unique match IDs across {pages} pages!")
+            return unique_ids
+
+        print(f"❌ Page loaded (title: {page.title}), but no match links found.")
         return None
-    return [m["match_id"] for m in res.get("matches") or []]
+
+    except Exception as e:
+        print(f"❌ Browser scrape error: {type(e).__name__} - {e}")
+        return None
+    finally:
+        if page:
+            page.quit()
 
 
 def basic_row(d, heroes):
-    """Базовые поля матча для upsert_basic из ответа OpenDota /matches/{id} или Steam GetMatchDetails — поля у них общие."""
     p = next((p for p in (d or {}).get("players") or [] if p.get("account_id") == ACCOUNT), None)
     if not p or d.get("radiant_win") is None:
         return None
@@ -186,75 +172,41 @@ def basic_row(d, heroes):
         "k": p.get("kills"), "d": p.get("deaths"), "a": p.get("assists"),
     }
 
-
-def from_steam(db, heroes):
-    """Догружает новые матчи из истории Steam. Число новых или None, если история недоступна."""
-    ids = steam_history()
+def from_dotabuff(db, heroes):
+    ids = get_dotabuff_match_ids()
     if ids is None:
         return None
+
     known = {r["id"] for r in db.execute("select id from matches")}
+    new_ids = [i for i in ids if i not in known]
+
+    if not new_ids:
+        return 0
+
     added = 0
-    for mid in (i for i in ids if i not in known):
+    total = len(new_ids)
+    for i, mid in enumerate(new_ids, 1):
+        progress(i, total, "Match details")
         od = get_json(f"https://api.opendota.com/api/matches/{mid}")
         row, source = basic_row(od, heroes), "opendota"
-        if not row:
-            # Совсем свежего матча в OpenDota может ещё не быть.
+
+        if not row and STEAM_KEY:
             row, source = basic_row((get_json(f"{STEAM}/GetMatchDetails/v1/?key={STEAM_KEY}&match_id={mid}") or {}).get("result"), heroes), "steam"
+
         if not row:
-            print(f"steam: no details for {mid} yet", file=sys.stderr)
+            print(f"Waiting for details for match {mid} (OpenDota lag)", file=sys.stderr)
             continue
+
         upsert_basic(db, row, source)
         if source == "opendota":
             apply_opendota(db, mid, od)
         db.commit()
         added += 1
-        time.sleep(1.1)
+        time.sleep(1.5)
+
     return added
 
-
-def from_dotabuff(db):
-    """Старый путь без ключа Steam: главная профиля Dotabuff через jina. Статус для scrape_status."""
-    rows, cal, fresh = scrape_dotabuff()
-    if rows and not fresh:
-        # Снимок из кэша нужен, только если в нём есть новые матчи: старый откатил бы календарь за сегодня.
-        known = {r["id"] for r in db.execute("select id from matches")}
-        if all(r["id"] in known for r in rows):
-            rows = None
-    if rows is None:
-        return "unavailable"
-    print(f"dotabuff{'' if fresh else ' (jina cache)'}: {len(rows)} matches, {len(cal)} calendar days")
-    for r in rows:
-        upsert_basic(db, r, "dotabuff-main")
-    db.executemany("insert or replace into calendar(date, w, l) values(?, ?, ?)", [(k, w, l) for k, (w, l) in cal.items()])
-    return "ok" if fresh else "cached"
-
-
-def parse_dotabuff(html):
-    # Вместо профиля может прийти заглушка Cloudflare — тогда считаем, что данных нет.
-    if not html or "Latest Matches" not in html:
-        return None, None
-    rows = []
-    section = html[html.find("Latest Matches"):]
-    # Если страница прошла через JS (рендер с ключом jina), у строк класс "r-row " с пробелом.
-    for chunk in re.split(r'<div class="r-row\s*">', section)[1:]:
-        m = ROW_RE.search(chunk)
-        if not m:
-            continue
-        mid, hero, res, ts, typ, mode, dur, k, d, a = m.groups()
-        rows.append({
-            "id": int(mid), "hero_name": hero.strip(), "win": int(res == "won"),
-            "start": ts, "type": typ.strip(), "mode": mode.strip(), "duration": parse_dur(dur.strip()),
-            "k": int(k), "d": int(d), "a": int(a),
-        })
-    cal = {d: (int(w), int(l)) for d, w, l in CAL_RE.findall(html)}
-    # Изменение разметки не должно выдавать пустой результат за успешное обновление.
-    if not rows or not cal:
-        return None, None
-    return rows, cal
-
-
 def upsert_basic(db, r, source):
-    """Базовые поля из Dotabuff; детали OpenDota не трогаем."""
     db.execute(
         """insert into matches(id, start, hero_name, win, type, mode, duration, k, d, a, source)
            values(:id, :start, :hero_name, :win, :type, :mode, :duration, :k, :d, :a, :source)
@@ -263,7 +215,6 @@ def upsert_basic(db, r, source):
              duration=coalesce(duration, excluded.duration), k=excluded.k, d=excluded.d, a=excluded.a""",
         {"type": None, "mode": None, "duration": None, **r, "source": source},
     )
-
 
 def load_constants(db):
     const = kv_get(db, "const")
@@ -284,17 +235,13 @@ def load_constants(db):
     kv_set(db, "const", const)
     return const
 
-
 def lineup(d, p):
-    """Герои союзников и противников игрока p — json-строки для колонок allies и enemies."""
     radiant = p["player_slot"] < 128
     allies = [x["hero_id"] for x in d["players"] if (x["player_slot"] < 128) == radiant and x is not p]
     enemies = [x["hero_id"] for x in d["players"] if (x["player_slot"] < 128) != radiant]
     return json.dumps(allies), json.dumps(enemies)
 
-
 def apply_opendota(db, mid, d):
-    """Записывает детали матча из ответа OpenDota /matches/{id}. True, если игрок найден."""
     if not d or not d.get("players"):
         return False
     p = next((p for p in d["players"] if p.get("account_id") == ACCOUNT), None)
@@ -323,10 +270,7 @@ def apply_opendota(db, mid, d):
     )
     return True
 
-
 def fill_details(db, limit):
-    # Свежие матчи OpenDota может отдавать с задержкой, а прогоны после пушей идут подряд и быстро сжигают попытки —
-    # поэтому матчи младше OD_RETRY_DAYS перезапрашиваем без лимита.
     recent = (datetime.now(timezone.utc) - timedelta(days=OD_RETRY_DAYS)).isoformat(timespec="seconds")
     todo = db.execute(
         "select id from matches where od_done=0 and (od_tries<8 or start>=?) order by start desc limit ?",
@@ -337,12 +281,10 @@ def fill_details(db, limit):
         db.execute("update matches set od_tries=od_tries+1 where id=?", (r["id"],))
         apply_opendota(db, r["id"], d)
         db.commit()
-        time.sleep(1.1)
+        time.sleep(1.5)
     return len(todo)
 
-
 def refill(db, limit):
-    """Регион и составы не сохраняли для матчей, загруженных до их появления, — перезапрашиваем понемногу."""
     todo = db.execute(
         "select id from matches where od_done=1 and (region is null or region < 0 and cluster is null or enemies is null)"
         " and start >= ? order by start desc limit ?",
@@ -352,31 +294,29 @@ def refill(db, limit):
         d = get_json(f"https://api.opendota.com/api/matches/{r['id']}")
         p = next((p for p in d["players"] if p.get("account_id") == ACCOUNT), None) if d and d.get("players") else None
         if p:
-            # -1 — OpenDota ответил, но региона нет; иначе такой матч перезапрашивался бы каждый запуск.
             db.execute("update matches set region=?, cluster=?, allies=?, enemies=? where id=?",
                        (d["region"] if d.get("region") is not None else -1, d.get("cluster"), *lineup(d, p), r["id"]))
             db.commit()
-        time.sleep(1.1)
+        time.sleep(1.5)
     return len(todo)
-
 
 def main(od_limit=OD_PER_RUN):
     db = connect()
     const = load_constants(db)
-    # Valve отдаёт историю, только если игрок открыл публичные данные матчей; иначе — Dotabuff.
-    added = from_steam(db, const["heroes"]) if STEAM_KEY else None
+
+    added = from_dotabuff(db, const["heroes"])
     if added is not None:
         status = "ok"
-        print(f"steam: {added} new matches")
+        print(f"dotabuff: {added} new matches")
     else:
-        status = from_dotabuff(db)
-    kv_set(db, "scrape_status", status)
-    if status == "unavailable":
+        status = "unavailable"
         print("::warning::Match source unavailable, keeping previous data", file=sys.stderr)
-    else:
+
+    kv_set(db, "scrape_status", status)
+    if status == "ok":
         kv_set(db, "scraped_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
-    profile = get_json(f"https://api.opendota.com/api/players/{ACCOUNT}")
+    profile = get_json("https://api.opendota" + ".com/api/players/" + str(ACCOUNT))
     if profile and profile.get("profile"):
         pr = profile["profile"]
         kv_set(db, "profile", {"name": pr.get("personaname"), "avatar": pr.get("avatarfull"),
@@ -384,14 +324,27 @@ def main(od_limit=OD_PER_RUN):
     db.commit()
 
     n = fill_details(db, od_limit)
+    refilled = refill(db, REFILL_PER_RUN)
     print(f"opendota details tried: {n}")
-    print(f"opendota refill tried: {refill(db, REFILL_PER_RUN)}")
+    print(f"opendota refill tried: {refilled}")
 
     OUT.write_text(json.dumps(build_output(db, const), ensure_ascii=False, separators=(",", ":")))
     HISTORY_OUT.write_text(json.dumps(history_list(load_history(db, const["heroes"])), ensure_ascii=False, separators=(",", ":")))
     db.close()
     print("ok")
 
+    if (added and added > 0) or n > 0 or refilled > 0:
+        print("Checking for JSON changes to push...")
+        subprocess.run(["git", "add", "data.json", "history.json"], cwd=ROOT, check=False)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ROOT)
+        if diff.returncode != 0:
+            subprocess.run(["git", "commit", "-m", f"chore: update matches (+{added or 0})"], cwd=ROOT, check=False)
+            subprocess.run(["git", "push"], cwd=ROOT, check=False)
+            print("Pushed updates to GitHub.")
+        else:
+            print("No JSON changes to push.")
+    else:
+        print("No new matches — skipping git push.")
 
 def build_output(db, const):
     heroes, items = const["heroes"], const["items"]
@@ -443,9 +396,7 @@ def build_output(db, const):
         "history": history_stats(load_history(db, heroes)),
     }
 
-
 def load_history(db, heroes):
-    """Все матчи базы, новые сверху, с героем и картинкой. Старые матчи из Dotabuff знают героя только по имени."""
     by_name = {h["name"]: h for h in heroes.values()}
     by_name["Outworld Destroyer"] = by_name.get("Outworld Devourer") or by_name.get("Outworld Destroyer")
     rows = []
@@ -456,9 +407,7 @@ def load_history(db, heroes):
         rows.append(m)
     return rows
 
-
 def history_stats(rows):
-    """Сводка за всю историю для блока «Вся история»: годы, герои, серии и рекорды."""
     years = {}
     for m in rows:
         y = years.setdefault(m["start"][:4], {"year": m["start"][:4], "n": 0, "w": 0, "rn": 0, "rw": 0})
@@ -491,9 +440,7 @@ def history_stats(rows):
                     record("assists", lambda m: m["a"]), record("duration", lambda m: m["duration"])],
     }
 
-
 def history_list(rows):
-    """Компактный список всех матчей для history.json: страница подгружает его отдельно от data.json."""
     names = sorted({m["hero"] for m in rows})
     idx = {n: i for i, n in enumerate(names)}
     imgs = {m["hero"]: m["hero_img"] for m in rows}
@@ -502,13 +449,7 @@ def history_list(rows):
         "matches": [[m["id"], m["start"][:16], idx[m["hero"]], m["win"], m["type"], m["duration"], m["k"], m["d"], m["a"]] for m in rows],
     }
 
-
 def rating_series(rows, cal):
-    """Рейтинг после каждой ранкед-игры от опорной точки BASE_TS (вперёд и назад) и точки на конец дня.
-
-    Если за какой-то день после опорной точки в календаре Dotabuff игр больше, чем матчей в базе (сборщик что-то
-    пропустил), недостающие W/L добавляем по календарю — они сдвигают рейтинг этого дня и всех следующих.
-    """
     chrono = sorted(rows, key=lambda m: m["start"])
     by_day = {}
     for m in chrono:
@@ -553,8 +494,6 @@ def rating_series(rows, cal):
     current = points[-1]["mmr"] if points else BASE_MMR
     return {"start": start_mmr, "points": points}, current
 
-
-# Часть света по id региона (constants/region + регионы из regions.txt Valve, которых ещё нет в API OpenDota).
 REGION_GROUP = {
     1: "na", 2: "na", 27: "na", 31: "na",
     3: "eu", 8: "eu", 9: "eu", 28: "eu",
@@ -564,21 +503,14 @@ REGION_GROUP = {
     6: "me", 7: "oce", 11: "af",
 }
 NEW_REGIONS = {"24": "Hong Kong", "27": "US North Central", "28": "Warsaw", "31": "US South Central"}
-# Новые кластеры, которых нет в constants/cluster OpenDota. Источники: имена серверов из odota/core#2986
-# (srcds…-waw2.189 / .436 — Варшава, srcds…-dfw2.407 — Даллас), dotaconstants (410 — US East)
-# и страницы матчей Stratz (129, 404–406 — Америка). 190 — сосед 189, Варшава по предположению;
-# 404–406 стоят в одном блоке с далласким 407.
 NEW_CLUSTERS = {129: 2, 189: 28, 190: 28, 436: 28, 404: 31, 405: 31, 406: 31, 407: 31, 410: 2}
 
-
 def region_stats(rows, regions):
-    """Винрейт ранкеда по частям света, внутри — по регионам сервера."""
     by = {}
     for m in rows:
         if m["region"] is None:
             continue
         rid = m["region"] if m["region"] >= 0 else NEW_CLUSTERS.get(m["cluster"])
-        # Кластеры, которых нет ни у OpenDota, ни в NEW_CLUSTERS, идут в группу «другие» (group None).
         group = REGION_GROUP.get(rid)
         name = (regions.get(str(rid)) or NEW_REGIONS.get(str(rid))) if group else None
         g = by.setdefault(group, {"group": group, "n": 0, "w": 0, "parts": {}})
@@ -595,9 +527,7 @@ def region_stats(rows, regions):
             r["clusters"] = sorted(r["clusters"])
     return out
 
-
 def matchup_stats(rows, heroes, side):
-    """Винрейт против героев (side="enemies") или вместе с ними (side="allies")."""
     by = {}
     for m in rows:
         for hid in m[side] or []:
@@ -609,22 +539,18 @@ def matchup_stats(rows, heroes, side):
             h["w"] += m["win"]
     return sorted(by.values(), key=lambda h: -h["n"])
 
-
 def draft_data(rows, heroes):
-    """Все герои и составы ранкед-матчей для калькулятора винрейта: [свой герой, победа, союзники, противники]."""
     return {
         "heroes": {hid: [h["name"], h["img"]] for hid, h in heroes.items()},
         "games": [[m["hero_id"], m["win"], m["allies"], m["enemies"]] for m in rows if m["enemies"] is not None],
     }
 
-
 def period_stats(rows, items, days, regions, hero_const):
-    """Статистика по всем ранкед-матчам базы с HISTORY_FROM."""
     rows = [m for m in rows if m["type"] == "Ranked"]
     days = days["points"]
     detailed = [m for m in rows if m["items"] is not None]
     cal_games = sum(d["w"] + d["l"] for d in days)
-    wr = lambda ms: {"n": len(ms), "w": sum(m["win"] for m in ms)}  # noqa: E731
+    wr = lambda ms: {"n": len(ms), "w": sum(m["win"] for m in ms)}
 
     by_hero = {}
     for m in rows:
@@ -649,7 +575,6 @@ def period_stats(rows, items, days, regions, hero_const):
 
     spectre = [m for m in detailed if m["hero"] == "Spectre"]
 
-    # Топ-10 предметов финального инвентаря (вместе с рюкзаком) по частоте.
     counts = {}
     for m in detailed:
         for iid in set((m["items"] or []) + (m["backpack"] or [])):
@@ -659,7 +584,7 @@ def period_stats(rows, items, days, regions, hero_const):
     top = sorted(counts, key=lambda i: -counts[i])[:10]
     top_items = []
     for iid in top:
-        inv = lambda m: iid in (m["items"] or []) or iid in (m["backpack"] or [])  # noqa: E731
+        inv = lambda m: iid in (m["items"] or []) or iid in (m["backpack"] or [])
         top_items.append({**item_ref(items, iid), "with": wr([m for m in detailed if inv(m)]),
                           "without": wr([m for m in detailed if not inv(m)])})
 
@@ -683,12 +608,10 @@ def period_stats(rows, items, days, regions, hero_const):
         "draft": draft_data(rows, hero_const),
     }
 
-
 def avg(ms, f):
     vals = [f(m) for m in ms]
     vals = [v for v in vals if v is not None]
     return round(sum(vals) / len(vals), 2) if vals else None
-
 
 FARM = {
     "gpm": lambda m: m["gpm"],
@@ -700,18 +623,14 @@ FARM = {
     "dur": lambda m: m["duration"],
 }
 
-
 def farm_stats(detailed):
-    """Средние за период, за последние 7 дней и за 7 дней до них."""
     now = datetime.now(timezone.utc)
     def window(lo, hi):
         return [m for m in detailed if lo <= (now - datetime.fromisoformat(m["start"])).total_seconds() / 86400 < hi]
     blocks = {"all": detailed, "week": window(0, 7), "prev": window(7, 14)}
     return {k: {"n": len(ms), **{f: avg(ms, fn) for f, fn in FARM.items()}} for k, ms in blocks.items()}
 
-
 def week_stats(detailed):
-    """По календарным неделям (пн–вс, UTC): игры, винрейт, средние GPM/XPM."""
     weeks = {}
     for m in detailed:
         d = datetime.fromisoformat(m["start"])
@@ -721,9 +640,7 @@ def week_stats(detailed):
              "gpm": avg(ms, FARM["gpm"]), "xpm": avg(ms, FARM["xpm"]), "lhm": avg(ms, FARM["lhm"])}
             for k, ms in sorted(weeks.items())]
 
-
 def streak_stats(rows):
-    """Самые длинные серии побед и поражений за период и текущая серия."""
     chrono = sorted(rows, key=lambda m: m["start"])
     best = {1: None, 0: None}
     i = 0
@@ -744,30 +661,43 @@ def streak_stats(rows):
         cur["n"] += 1
     return {"win": best[1], "loss": best[0], "current": cur}
 
-
 def item_ref(items, iid):
     if not iid:
         return None
     it = items.get(str(iid))
     return {"id": iid, "name": it["name"], "img": it["img"]} if it else None
 
-
 def region_name(raw):
-    """«US WEST» → «US West», «SOUTHAFRICA» → «South Africa»."""
     name = raw.title().replace("Southafrica", "South Africa")
     return re.sub(r"\b(Us|Pw)\b", lambda m: m.group(1).upper(), name)
-
 
 def slug(name):
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
+def progress(i, total, label="", width=30):
+    """Progress bar: in-place in a TTY, milestone lines in CI logs."""
+    if total <= 0:
+        return
+    pct = i / total
+    filled = int(width * pct)
+    bar = "=" * filled + "-" * (width - filled)
+    line = f"{label} [{bar}] {i}/{total} ({pct * 100:3.0f}%)"
+    if sys.stdout.isatty():
+        sys.stdout.write("\r" + line + ("" if i < total else "\n"))
+        sys.stdout.flush()
+    else:
+        step = max(1, total // 20)  # ~20 lines max in CI
+        if i == 1 or i == total or i % step == 0:
+            print(line, flush=True)
 
-def parse_dur(s):
-    sec = 0
-    for p in s.split(":"):
-        sec = sec * 60 + int(p)
-    return sec
-
-
+# --- ENFORCE 3-HOUR SLEEP ---
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else OD_PER_RUN)
+    print("Starting continuous tracker...")
+    while True:
+        try:
+            main(int(sys.argv[1]) if len(sys.argv) > 1 else OD_PER_RUN)
+        except Exception as e:
+            print(f"::error::Main loop error: {e}", file=sys.stderr)
+
+        print(f"Sleeping for 3 hours (Next update at {datetime.now() + timedelta(hours=3)})...")
+        time.sleep(10800)

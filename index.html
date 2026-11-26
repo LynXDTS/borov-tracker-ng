@@ -69,7 +69,7 @@ a { color: inherit; }
 @keyframes twpulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .tws.on::before { animation: none; } }
 .tws:empty { display: none; }
-.live { margin-left: auto; display: grid; justify-items: end; gap: 2px; font-size: 13px; color: var(--muted); }
+.live { margin-left: auto; display: grid; justify-items: end; gap: 2px; font-size: 13px; color: var(--muted); text-align: right; min-width: 200px; }
 .live .dot { display: inline-flex; align-items: center; gap: 8px; font: 600 15px var(--f-head); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .live .dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--win); box-shadow: 0 0 0 0 #5cbf7580; animation: pulse 2s infinite; }
 .live.stale .dot::before { background: var(--gold); animation: none; }
@@ -133,7 +133,8 @@ a { color: inherit; }
 .duo .hd .x::after { content: ""; position: absolute; left: -3px; right: -3px; top: 50%; height: 2px; background: var(--loss); transform: rotate(-32deg); }
 .duo .pc { font: 800 44px var(--f-head); line-height: 1; }
 .duo .n { font-size: 12px; color: var(--muted); }
-.waffle { display: flex; flex-wrap: wrap; gap: 3px; }
+/*.waffle { display: flex; flex-wrap: wrap; gap: 3px; }*/
+.waffle {display: flex; flex-wrap: wrap; gap: 3px; max-height: 120px; overflow-y: auto; padding-right: 4px; }
 .waffle i { width: 12px; height: 12px; border-radius: 2px; background: var(--loss); opacity: .75; }
 .waffle i.w { background: var(--win); opacity: 1; }
 .waffle i.r { outline: 2px solid var(--gold); outline-offset: -2px; opacity: 1; }
@@ -166,7 +167,7 @@ svg .ref { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
 
 /* heroes */
 .hlist { display: grid; gap: 2px; max-height: 420px; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
-.hrow { display: grid; grid-template-columns: 50px minmax(0, 1fr) 64px 54px; gap: 12px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.hrow { display: grid; grid-template-columns: 50px minmax(0, 1fr) 70px 56px; gap: 12px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
 .hrow:first-child { border-top: 0; }
 .hrow img { width: 50px; height: 28px; border-radius: 4px; object-fit: cover; }
 .hrow .nm { font: 600 17px var(--f-head); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -319,7 +320,7 @@ table.h td.c, table.h th.c { text-align: right; }
 .kda b { font: 600 18px var(--f-head); }
 .inv { display: flex; gap: 3px; align-items: center; }
 .inv img, .inv .empty { width: 38px; height: 28px; border-radius: 3px; display: inline-block; }
-.inv .empty { background: var(--panel-2); }
+.inv .empty { background: var(--panel-2); box-shadow: inset 0 0 0 1px #262d36; }
 .inv .nt { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-left: 6px; }
 .mm { font: 700 18px var(--f-head); }
 .dl { font: 700 13px var(--f-head); padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
@@ -350,7 +351,7 @@ table.h.hl .hero img { height: 30px; width: auto; }
 .srow .rk { font: 700 18px var(--f-head); color: var(--muted); text-align: right; }
 .srow img { width: 50px; height: 28px; border-radius: 4px; object-fit: cover; background: var(--panel-2); }
 .srow .nm { font: 600 17px var(--f-head); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.srow .sub { white-space: nowrap; }
+.srow .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .srow .kda { white-space: nowrap; }
 .srow a.db { padding: 4px 8px; font-size: 12px; }
 .lang { margin-left: 4px; }
@@ -365,7 +366,7 @@ table.h.hl .hero img { height: 30px; width: auto; }
 .cgrp .glbl { justify-self: start; font: 600 14px var(--f-head); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
 .cgrp.on .glbl { color: var(--gold); }
 .cs { display: flex; gap: 6px; }
-.slotb { width: clamp(46px, 12vw, 64px); aspect-ratio: 16 / 9; border-radius: 6px; border: 1px dashed var(--line); background: var(--panel-2); color: var(--dim); padding: 0; cursor: pointer; overflow: hidden; font: 700 18px var(--f-head); }
+.slotb { width: clamp(46px, 12vw, 64px); aspect-ratio: 16 / 9; border-radius: 6px; border: 2px dashed var(--line); background: var(--panel-2); color: var(--dim); padding: 0; cursor: pointer; overflow: hidden; font: 700 18px var(--f-head); }
 .slotb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cgrp.on .slotb { border-color: #e3ae4580; }
 .slotb.f { border: 2px solid var(--gold); }
@@ -431,6 +432,7 @@ a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 }
 @media (max-width: 480px) {
   .deltas { grid-template-columns: 1fr 1fr; }
+  .deltas .delta:nth-child(3) { grid-column: span 2; }
   .strip i { height: 22px; }
   .duo { grid-template-columns: 1fr; }
 }
@@ -543,32 +545,38 @@ const I18N = {
     loadErr: e => `Не удалось загрузить data.json (${e}). Попробую ещё раз через минуту.`,
     justNow: "только что", minAgo: m => `${m} мин назад`, hAgo: (h, m) => `${h} ч ${m} мин назад`, dAgo: d => `${d} дн назад`,
     games: n => `${n} ${ruPlural(n, "игра", "игры", "игр")}`,
-    untilRun: "До планового обновления", runNow: "Плановое обновление", waiting: "ожидаем обновление",
+    untilRun: "До планового обновления", runNow: "Плановое обновление", waiting: "Ожидаем обновления",
     recalc: "Пересчёт", dbData: "Данные о матчах", dbDataLc: "данные о матчах", notYet: "ещё не получены",
     srcDown: "источник недоступен", srcCached: "снимок из кэша jina", footDown: "источник матчей недоступен, сохранены предыдущие данные", nextRunLc: "плановое обновление",
     approx: "Примерный рейтинг", lbRank: n => `#${n} в лидерборде`,
     goalWins: (n, g) => `${ruPlural(n, "победа", "победы", "побед")} в плюс до ${g}`,
-    goalForm: (wr, n, res) => `при WR ${wr}% за ${n} игр: ${res}`, never: "не дойдёт", reached: "взято",
+    /*goalForm: (wr, n, res) => `при WR ${wr}% за ${n} игр: ${res}`,*/
+    goalForm: (wr, n, res) => `при WR ${wr}% за ${n} ${ruPlural(n, "игру", "игры", "игр")}: ${res}`, never: "не дойдёт", reached: "взято",
     today: "сегодня", week: "за 7 дней", since: (d, m) => `с ${d} (${m})`,
     farm7: "Фарм за 7 дней", farmSub: g => `${g} · дельта к прошлой неделе`, perPeriod: "за период",
     farmNames: ["GPM", "XPM", "Добивания/мин", "Net worth", "KDA", "Урон/мин"],
-    lastN: n => `Последние ${n} матчей`, stripAria: "Победы и поражения, слева старые",
+    // lastN: n => `Последние ${n} матчей`, stripAria: "Победы и поражения, слева старые",
+    //
+    lastN: n => `${n % 10 === 1 && n % 100 !== 11 ? "Последний" : "Последние"} ${n} ${ruPlural(n, "матч", "матча", "матчей")}`, stripAria: "Победы и поражения, слева старше",
     win: "Победа", loss: "Поражение", older: "← старые", newer: "новые →",
     streakNow: (n, w) => `Серия: ${n} ${w ? ruPlural(n, "победа", "победы", "побед") : ruPlural(n, "поражение", "поражения", "поражений")} подряд`, streaksSince: d => `Серии с ${d}`,
     bestWin: "Лучшая победная", worstLoss: "Худшая проигрышная", now: "Сейчас", inRow: (w, n) => `${w ? ruPlural(n, "победа", "победы", "побед") : ruPlural(n, "поражение", "поражения", "поражений")} подряд`,
-    inLastN: n => `В последних ${n}`, maxWins: "Макс. побед", maxLosses: "Макс. поражений", row: "подряд", avgGpm: "Средний GPM",
+    /*inLastN: n => `В последних ${n}`,*/
+    inLastN: n => `В последних ${n} ${ruPlural(n, "матче", "матчах", "матчах")}`, maxWins: "Макс. побед", maxLosses: "Макс. поражений", row: "подряд", avgGpm: "Средний GPM",
     daily: "Рейтинг по дням", dailySub: (s, d) => `±${s} за ранкед-игру с патча 7.41e (${d})`,
     patch: "патч 7.41e", beforePatch: "до первой игры после патча 7.41e",
     heroes: "Герои", coverage: (g, d) => `${g} в ранкеде с ${d}`, byWeek: "По неделям", byWeekSub: "последние 5, дельта GPM к прошлой",
     weekCols: ["Неделя", "Игр", "WR", "GPM", "Δ", "XPM"],
     chartSub: "рейтинг после каждой игры, наведите на столбик", legWin: "победа", legLoss: "поражение", legLine: "рейтинг после игры",
     ratingTip: "рейтинг", matchAria: "Рейтинг по последним матчам",
-    items: "Винрейт по предметам", itemsSub: n => `топ-10 в инвентаре · ${n} игр`, without: "без",
+    // items: "Винрейт по предметам", itemsSub: n => `топ-10 в инвентаре · ${n} игр`, without: "без",
+    items: "Винрейт по предметам", itemsSub: n => `топ-10 в инвентаре · ${n} ${ruPlural(n, "игра", "игры", "игр")}`, without: "без",
     legWith: "с предметом", legWithout: "без него", legDiff: "справа — разница в п.п.",
     matches: "Матчи", lastLc: n => `последние ${n}`,
     cols: ["Герой", "Результат", "Длительность", "KDA", "NW · GPM", "Предметы", "Рейтинг", "Матч"],
     lvl: "ур.", score: "счёт", waitOd: "ждём OpenDota", onDb: id => `Матч ${id} на Dotabuff`,
-    shame: "Позорный зал", shameSub: (n, d) => `топ-${n} с ${d} · от 10 смертей, по смертям минус убийства`,
+    // shame: "Позорный зал", shameSub: (n, d) => `топ-${n} с ${d} · от 10 смертей, по смертям минус убийства`,
+    shame: "Позорный зал", shameSub: (n, d) => `топ-${n} с ${d} · от 10 смертей (сортировка по D-K)`,
     regions: "Винрейт по регионам", regionsSub: (n, d) => `ранкед с ${d} · ${n} с известным регионом`,
     otherRegion: "Другие", clusters: "кластеры", unknownSrv: "неизвестный сервер",
     groups: { eu: "Европа", na: "Сев. Америка", sa: "Юж. Америка", asia: "Азия", cn: "Китай", me: "Ближний Восток", oce: "Океания", af: "Африка" },
@@ -585,7 +593,8 @@ const I18N = {
     calcNote: "Винрейт пика плюс поправка за каждого героя; чем меньше игр с героем, тем поправка ближе к нулю",
     hist: "Вся история", histSub: (n, w, y) => `${n} ${ruPlural(n, "матч", "матча", "матчей")} с ${y} · ${w}-${n - w}`,
     histByYear: "По годам", histHeroes: "Самые частые герои", histRecords: "Рекорды", histAll: "Все",
-    histYearCols: ["Год", "Игр", "WR", "Ранкед", "WR"], histCols: ["Герой", "Результат", "Дата", "Длительность", "KDA", "Матч"],
+/*    histYearCols: ["Год", "Игр", "WR", "Ранкед", "WR"],*/
+    histYearCols: ["Год", "Матчи", "WR", "Ранкед", "WR"],histCols: ["Герой", "Результат", "Дата", "Длительность", "KDA", "Матч"],
     histRec: { kills: "Больше всего убийств", deaths: "Больше всего смертей", assists: "Больше всего помощи", duration: "Самая долгая игра" },
     histWin: "Лучшая серия ранкеда", histLoss: "Худшая серия ранкеда", histMore: n => `Показать ещё (осталось ${n})`, histLoading: "Загружаю список матчей…", histErr: "Не удалось загрузить список матчей",
   },
@@ -604,16 +613,18 @@ const I18N = {
     loadErr: e => `No se pudo cargar data.json (${e}). Reintento en un minuto.`,
     justNow: "ahora mismo", minAgo: m => `hace ${m} min`, hAgo: (h, m) => `hace ${h} h ${m} min`, dAgo: d => `hace ${d} d`,
     games: n => `${n} ${n === 1 ? "partida" : "partidas"}`,
-    untilRun: "Próxima actualización", runNow: "Actualización programada", waiting: "esperando actualización",
+    // untilRun: "Próxima actualización", runNow: "Actualización programada", waiting: "esperando actualización",
+    untilRun: "Próxima actualización", runNow: "Actualización programada", waiting: "Esperando actualización",
     recalc: "Recalculado", dbData: "Datos de partidas", dbDataLc: "datos de partidas", notYet: "aún no recibidos",
-    srcDown: "fuente no disponible", srcCached: "copia en caché de jina", footDown: "fuente de partidas no disponible, se mantienen los datos anteriores", nextRunLc: "próxima actualización",
+    srcDown: "fuente no disponible", srcCached: "copia en caché de jina", footDown: "fuente de partidas no disponible, se mantienen los datos anteriores", nextRunLc: "Próxima actualización",
     approx: "MMR aproximado", lbRank: n => `#${n} en la clasificación`,
     goalWins: (n, g) => `${n === 1 ? "victoria neta" : "victorias netas"} hasta ${g}`,
     goalForm: (wr, n, res) => `con WR ${wr}% en ${n} partidas: ${res}`, never: "no llega", reached: "conseguido",
     today: "hoy", week: "en 7 días", since: (d, m) => `desde ${d} (${m})`,
     farm7: "Farmeo en 7 días", farmSub: g => `${g} · cambio vs. semana anterior`, perPeriod: "en el periodo",
     farmNames: ["GPM", "XPM", "Last hits/min", "Net worth", "KDA", "Daño/min"],
-    lastN: n => `Últimas ${n} partidas`, stripAria: "Victorias y derrotas, las antiguas a la izquierda",
+    // lastN: n => `Últimas ${n} partidas`, stripAria: "Victorias y derrotas, las antiguas a la izquierda",
+    lastN: n => n === 1 ? `Última ${n} partida` : `Últimas ${n} partidas`, stripAria: "Victorias y derrotas, las antiguas a la izquierda",
     win: "Victoria", loss: "Derrota", older: "← antiguas", newer: "recientes →",
     streakNow: (n, w) => `Racha: ${n} ${w ? "victoria" : "derrota"}${n === 1 ? " seguida" : "s seguidas"}`, streaksSince: d => `Rachas desde ${d}`,
     bestWin: "Mejor racha ganadora", worstLoss: "Peor racha perdedora", now: "Ahora", inRow: (w, n) => `${w ? "victoria" : "derrota"}${n === 1 ? " seguida" : "s seguidas"}`,
@@ -624,7 +635,8 @@ const I18N = {
     weekCols: ["Semana", "Part.", "WR", "GPM", "Δ", "XPM"],
     chartSub: "MMR tras cada partida, pasa el cursor por las barras", legWin: "victoria", legLoss: "derrota", legLine: "MMR tras la partida",
     ratingTip: "MMR", matchAria: "MMR en las últimas partidas",
-    items: "Winrate por objetos", itemsSub: n => `top 10 en inventario · ${n} partidas`, without: "sin",
+    // items: "Winrate por objetos", itemsSub: n => `top 10 en inventario · ${n} partidas`, without: "sin",
+    items: "Winrate por objetos", itemsSub: n => `top 10 en inventario · ${n} ${n === 1 ? "partida" : "partidas"}`, without: "sin",
     legWith: "con el objeto", legWithout: "sin él", legDiff: "a la derecha, diferencia en p.p.",
     matches: "Partidas", lastLc: n => `últimas ${n}`,
     cols: ["Héroe", "Resultado", "Duración", "KDA", "NW · GPM", "Objetos", "MMR", "Partida"],

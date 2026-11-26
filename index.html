@@ -177,7 +177,7 @@ svg .ref { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .pct { font: 700 20px var(--f-head); text-align: right; }
 
 /* поросёнок */
-.arcade { margin-left: auto; display: flex; gap: 8px; align-items: stretch; }
+/*.arcade { margin-left: auto; display: flex; gap: 8px; align-items: stretch; }
 .arcade .slot { margin-left: 0; }
 .arcade + .live { margin-left: 0; }
 .pigbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 6px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); color: var(--text); cursor: pointer; font: inherit; transition: border-color .2s; }
@@ -204,10 +204,10 @@ body:has(.pigd[open]) { overflow: hidden; }
 #pigGame { width: 100%; aspect-ratio: 5 / 8; display: block; border-radius: 10px; background: #10151d; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
 .pigd-skins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .pigd-skins button { padding-inline: 2px; overflow: hidden; text-overflow: ellipsis; }
-.pigd-skins button[aria-pressed="true"] { color: #1a1206; background: var(--gold); border-color: var(--gold); }
+.pigd-skins button[aria-pressed="true"] { color: #1a1206; background: var(--gold); border-color: var(--gold); }*/
 
 /* casino */
-.top .wrap { position: relative; }
+/*.top .wrap { position: relative; }
 .slot { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 8px 6px 8px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); transition: border-color .2s, box-shadow .2s; }
 .slot + .live { margin-left: 0; }
 .live { max-width: 250px; text-align: right; }
@@ -259,7 +259,7 @@ body:has(.pigd[open]) { overflow: hidden; }
 @keyframes flash { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .slot, .reel, .reel img, .lever .arm, .knob, .slot-res { animation: none !important; transition: none !important; }
-}
+}*/
 
 /* vs */
 .vscols { display: grid; gap: 18px; }
@@ -434,6 +434,7 @@ a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .strip i { height: 22px; }
   .duo { grid-template-columns: 1fr; }
 }
+.arcade, #pigDlg { display: none !important; }
 </style>
 </head>
 <body>
